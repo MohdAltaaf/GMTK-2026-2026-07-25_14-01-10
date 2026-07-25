@@ -122,12 +122,6 @@ This is the highest-leverage engineering decision available to you — everythin
 - [ ] Juice pass (Section 10)
 - [ ] **Reserve your last 2-3 hours for playtesting and bug fixing only — no new features.** This is the rule most jam teams break and regret.
 
-## 12. If You're Ahead of Schedule (stretch, do not start early)
-- Ground-rolling fallback for missed throws (only after mid-air homing feels good)
-- Slide movement tech, dash i-frames
-- A 3rd item type
-- Best-of-3 scoring / round transitions
-- Enemy uses combos intentionally (e.g. throws ice cream, then bomb)
 
 ## 13. Open Questions to Settle Before You Start Coding
 - Arena size/shape — small enough that fleeing can't go on forever?
