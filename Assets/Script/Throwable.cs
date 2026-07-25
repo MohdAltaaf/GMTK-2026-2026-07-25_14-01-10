@@ -78,6 +78,22 @@ public class Throwable : MonoBehaviour
         ignoredThrowerCollider = null;
     }
 
+    // Generically useful for respawning ANY throwable at a fixed point - not
+    // bomb-specific, but Bomb.Respawn() (see Bomb.cs) is the main caller right now.
+    public virtual void ForceReset(Vector3 position)
+    {
+        CancelInvoke(); // clears any pending ReenableThrowerCollision call
+        transform.SetParent(null);
+        transform.position = position;
+        transform.rotation = Quaternion.identity;
+        rb.isKinematic = false;
+        rb.linearVelocity = Vector3.zero;
+        col.enabled = true;
+        Holder = null;
+        CurrentThrower = null;
+        State = ThrowableState.Idle;
+    }
+
     // --- Collision handling ---
 
     protected virtual void OnCollisionEnter(Collision collision)

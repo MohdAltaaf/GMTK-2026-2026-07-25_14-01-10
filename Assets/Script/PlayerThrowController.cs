@@ -44,6 +44,7 @@ public class PlayerThrowController : MonoBehaviour
     {
         bool pressed = value.isPressed;
         catcher.IsReadyToCatch = pressed;
+        Debug.Log("interact fired, pressed=" + value.isPressed);
 
         if (pressed && heldItem == null)
         {
@@ -72,6 +73,7 @@ public class PlayerThrowController : MonoBehaviour
             if (candidate == null || !candidate.CanBePickedUp()) continue;
 
             float dist = Vector3.Distance(transform.position, candidate.transform.position);
+            Debug.Log(hits.Length);
             if (dist < closestDist)
             {
                 closestDist = dist;
