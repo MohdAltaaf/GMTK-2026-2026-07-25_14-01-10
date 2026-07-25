@@ -41,12 +41,12 @@ public class Movememnt : MonoBehaviour
     private Vector3 dashDirection;
     private int airDashesRemaining;
 
-    // Read by the camera script for strafe tilt / head bob, and to know when to react.
+
     public Vector2 MoveInput => moveInput;
     public bool IsGrounded { get; private set; }
 
-    // Camera juice hooks - subscribe to these instead of PlayerMovement needing
-    // to know anything about cameras/shake.
+
+
     public event System.Action OnDashStarted;
     public event System.Action OnJumped;
     public event System.Action OnLanded;
@@ -57,7 +57,7 @@ public class Movememnt : MonoBehaviour
         airDashesRemaining = airDashCharges;
     }
 
-    // --- Input System callbacks (PlayerInput component, "Send Messages" behavior) ---
+
 
     void OnMove(InputValue value)
     {
@@ -68,7 +68,7 @@ public class Movememnt : MonoBehaviour
     {
         if (value.isPressed)
         {
-            jumpBufferTimer = jumpBufferTime; // remember the press even if we're briefly airborne
+            jumpBufferTimer = jumpBufferTime; 
         }
     }
 
@@ -128,7 +128,7 @@ public class Movememnt : MonoBehaviour
         // --- Gravity ---
         velocity.y += gravity * Time.deltaTime;
 
-        // --- Apply everything in one Move() call ---
+       
         Vector3 finalMove = horizontalMove;
         finalMove.y = velocity.y;
         controller.Move(finalMove * Time.deltaTime);
@@ -156,7 +156,7 @@ public class Movememnt : MonoBehaviour
             airDashesRemaining--;
         }
 
-        // Dash toward current move input direction, or straight forward if standing still.
+        
         Vector3 dir = CameraRelativeDirection();
         dashDirection = dir.sqrMagnitude > 0.01f ? dir.normalized : transform.forward;
 
