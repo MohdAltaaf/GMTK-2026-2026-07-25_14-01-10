@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(CharacterController))]
-public class Movement : MonoBehaviour
+public class Movememnt : MonoBehaviour
 {
     [Header("References")]
     [Tooltip("The player's camera transform - used to make movement/dash direction camera-relative.")]
@@ -41,6 +41,16 @@ public class Movement : MonoBehaviour
     private Vector3 dashDirection;
     private int airDashesRemaining;
 
+    // Read by the camera script for strafe tilt / head bob, and to know when to react.
+    public Vector2 MoveInput => moveInput;
+    public bool IsGrounded { get; private set; }
+
+    // Camera juice hooks - subscribe to these instead of PlayerMovement needing
+    // to know anything about cameras/shake.
+    public event System.Action OnDashStarted;
+    public event System.Action OnJumped;
+    public event System.Action OnLanded;
+
     private void Awake()
     {
         controller = GetComponent<CharacterController>();
@@ -73,6 +83,8 @@ public class Movement : MonoBehaviour
     private void Update()
     {
         bool grounded = controller.isGrounded;
+        if (grounded && !IsGrounded) OnLanded?.Invoke();
+        IsGrounded = grounded;
 
         // --- Timers ---
         coyoteTimer = grounded ? coyoteTime : coyoteTimer - Time.deltaTime;
@@ -91,6 +103,7 @@ public class Movement : MonoBehaviour
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             jumpBufferTimer = 0f;
             coyoteTimer = 0f; // prevents double-jumping off the same coyote window
+            OnJumped?.Invoke();
         }
 
         // --- Dash resolution ---
@@ -150,5 +163,6 @@ public class Movement : MonoBehaviour
         isDashing = true;
         dashTimer = dashDuration;
         dashCooldownTimer = dashCooldown;
+        OnDashStarted?.Invoke();
     }
 }
