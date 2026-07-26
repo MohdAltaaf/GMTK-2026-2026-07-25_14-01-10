@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 // Temporary test harness - shows fuse/state/event info on screen via OnGUI so you
@@ -33,11 +32,9 @@ public class BombDebugDisplay : MonoBehaviour
         Debug.Log(lastEvent);
     }
 
-    private void HandleDetonated(List<Catcher> victims)
+    private void HandleDetonated(Catcher loser)
     {
-        lastEvent = victims.Count > 0
-            ? $"DETONATED on {string.Join(", ", victims.ConvertAll(v => v.name))}"
-            : "DETONATED (no one nearby)";
+        lastEvent = loser != null ? $"DETONATED - {loser.name} loses" : "DETONATED (no catchers in scene)";
         Debug.Log(lastEvent);
     }
 

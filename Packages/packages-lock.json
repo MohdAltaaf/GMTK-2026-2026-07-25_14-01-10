@@ -1,11 +1,10 @@
 {
   "dependencies": {
     "com.daniel-geo.unityhackatime": {
-      "version": "https://github.com/daniel-geo/unity-hackatime.git#package",
+      "version": "file:C:/Users/KSF/Downloads/Compressed/unity-hackatime-main/unity-hackatime-main/Assets/com.daniel-geo.unityhackatime",
       "depth": 0,
-      "source": "git",
-      "dependencies": {},
-      "hash": "5ac210a9a287428cb876ce9ea4ef14fe31e115b7"
+      "source": "local",
+      "dependencies": {}
     },
     "com.unity.ai.navigation": {
       "version": "2.0.8",

@@ -1,16 +1,17 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 // The bomb - a Throwable with a persistent fuse timer, soft mid-air homing toward
 // whoever it's aimed at, and a proximity-based retarget rule that lets movement
 // itself become an attack (see GDD section 4, "herding").
+//
+// Win condition: when the fuse hits zero, whoever is CLOSEST to the bomb loses -
+// holding it counts as effectively distance ~0, so no special-casing needed for
+// "holding it when it goes off" vs "it landed near you."
 public class Bomb : Throwable
 {
     [Header("Fuse")]
-    [Tooltip("Total time before detonation. Keeps counting through catches, throws, and idle time on the ground - nothing resets it.")]
-    [SerializeField] private float fuseDuration = 12f;
-    [Tooltip("If the fuse hits zero while the bomb is mid-air or sitting on the ground (not held), anyone within this radius is caught in the blast.")]
-    [SerializeField] private float detonationRadius = 3f;
+    [Tooltip("Total time before detonation. Keeps counting through catches, throws, and idle time on the ground - nothing resets it. ~90s for the real match, keep this short (5-10s) while iterating today.")]
+    [SerializeField] private float fuseDuration = 90f;
 
     [Header("Homing")]
     [Tooltip("How aggressively the bomb curves toward its target mid-flight. Higher = snappier turns, lower = gentler arcs that still feel throwable.")]
@@ -30,9 +31,9 @@ public class Bomb : Throwable
 
     public float FuseNormalized => Mathf.Clamp01(fuseTimer / fuseDuration);
 
-    public event System.Action<float> OnFuseTick;          // 1 = full fuse, 0 = about to blow - wire this to your countdown UI
-    public event System.Action<Catcher> OnRetargeted;      // fire your telegraph flash/sound off this
-    public event System.Action<List<Catcher>> OnDetonated; // whoever got caught in the blast
+    public event System.Action<float> OnFuseTick;     // 1 = full fuse, 0 = about to blow - wire this to your countdown UI
+    public event System.Action<Catcher> OnRetargeted; // fire your telegraph flash/sound off this
+    public event System.Action<Catcher> OnDetonated;  // whoever was closest when it went off - the loser
 
     protected override void Awake()
     {
@@ -50,14 +51,16 @@ public class Bomb : Throwable
         if (fuseTimer <= 0f)
         {
             Detonate();
-            return;
         }
+    }
 
-        if (State == ThrowableState.InFlight)
-        {
-            UpdateHoming();
-            UpdateRetarget();
-        }
+    private void FixedUpdate()
+    {
+        if (hasDetonated) return;
+        if (State != ThrowableState.InFlight) return;
+
+        UpdateRetarget();
+        UpdateHoming();
     }
 
     public override void Throw(Vector3 velocity)
@@ -69,6 +72,11 @@ public class Bomb : Throwable
         ignoredHasLeftZone = false;
 
         currentTarget = FindDefaultTarget(throwerCatcher);
+
+        // Quick diagnostic - delete once you've confirmed targeting works.
+        Debug.Log(currentTarget != null
+            ? $"Bomb targeting: {currentTarget.name}"
+            : "Bomb has no target after throw - Catcher.All needs 2+ entries (check your test dummy has an enabled Catcher component)");
     }
 
     private Catcher FindDefaultTarget(Catcher exclude)
@@ -89,7 +97,7 @@ public class Bomb : Throwable
 
         Vector3 desiredDir = toTarget.normalized;
         Vector3 currentDir = rb.linearVelocity.sqrMagnitude > 0.01f ? rb.linearVelocity.normalized : desiredDir;
-        Vector3 newDir = Vector3.Slerp(currentDir, desiredDir, homingStrength * Time.deltaTime);
+        Vector3 newDir = Vector3.Slerp(currentDir, desiredDir, homingStrength * Time.fixedDeltaTime);
 
         rb.linearVelocity = newDir * rb.linearVelocity.magnitude; // curve direction, preserve speed
     }
@@ -127,21 +135,21 @@ public class Bomb : Throwable
     {
         hasDetonated = true;
 
-        List<Catcher> victims = new List<Catcher>();
+        Catcher loser = null;
+        float closestDist = float.MaxValue;
 
-        if (State == ThrowableState.Held && Holder != null)
+        foreach (Catcher c in Catcher.All)
         {
-            Catcher holderCatcher = Holder.GetComponentInParent<Catcher>();
-            if (holderCatcher != null) victims.Add(holderCatcher);
-        }
-        else
-        {
-            foreach (Catcher c in Catcher.All)
+            float dist = Vector3.Distance(c.transform.position, transform.position);
+            if (dist < closestDist)
             {
-                if (Vector3.Distance(c.transform.position, transform.position) <= detonationRadius)
-                    victims.Add(c);
+                closestDist = dist;
+                loser = c;
             }
         }
+        // Holding the bomb puts you at ~0 distance, so "holding when it goes off"
+        // and "it landed near you" both fall out of this one comparison - no
+        // separate held-vs-thrown branch needed.
 
         if (explosionVFX != null)
         {
@@ -150,13 +158,11 @@ public class Bomb : Throwable
             Destroy(fx.gameObject, fx.main.duration);
         }
 
-        OnDetonated?.Invoke(victims);
+        OnDetonated?.Invoke(loser);
     }
 
-    // Call this from whatever round-management script you build next, once you
-    // know where the bomb should reappear. Detonate() deliberately doesn't call
-    // this itself - what happens after a blast (respawn point, scoring, delay)
-    // is round logic, not bomb logic.
+    // Call this from whatever end-game/menu script you build, once you know
+    // where (or whether) the bomb should reappear.
     public void Respawn(Vector3 position)
     {
         ForceReset(position);
