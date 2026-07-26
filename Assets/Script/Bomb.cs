@@ -1,23 +1,17 @@
 using UnityEngine;
 
-// The bomb - a Throwable with a persistent fuse timer, soft mid-air homing toward
-// whoever it's aimed at, and a proximity-based retarget rule that lets movement
-// itself become an attack (see GDD section 4, "herding").
-//
-// Win condition: when the fuse hits zero, whoever is CLOSEST to the bomb loses -
-// holding it counts as effectively distance ~0, so no special-casing needed for
-// "holding it when it goes off" vs "it landed near you."
 public class Bomb : Throwable
 {
     [Header("Fuse")]
-    [Tooltip("Total time before detonation. Keeps counting through catches, throws, and idle time on the ground - nothing resets it. ~90s for the real match, keep this short (5-10s) while iterating today.")]
     [SerializeField] private float fuseDuration = 90f;
 
     [Header("Homing")]
-    [Tooltip("How aggressively the bomb curves toward its target mid-flight. Higher = snappier turns, lower = gentler arcs that still feel throwable.")]
     [SerializeField] private float homingStrength = 2f;
-    [Tooltip("If any entity other than the excluded thrower gets this close mid-flight, the bomb retargets onto them.")]
     [SerializeField] private float retargetRadius = 2.5f;
+    [Tooltip("Floor speed once it's rolling on the ground after a miss - stops it freezing once friction kills its velocity.")]
+    [SerializeField] private float minGroundHomingSpeed = 4f;
+    [Tooltip("Inside this range, skip the gradual turn and aim dead straight at the target - fixes the orbit bug where it circles the target instead of connecting.")]
+    [SerializeField] private float snapToDirectRadius = 1.5f;
 
     [Header("FX")]
     [SerializeField] private ParticleSystem explosionVFX;
@@ -26,14 +20,14 @@ public class Bomb : Throwable
     private bool hasDetonated;
 
     private Catcher currentTarget;
-    private Catcher ignoredEntity;      // whoever just threw it - excluded from retargeting until they clear the zone once
+    private Catcher ignoredEntity;
     private bool ignoredHasLeftZone;
 
     public float FuseNormalized => Mathf.Clamp01(fuseTimer / fuseDuration);
 
-    public event System.Action<float> OnFuseTick;     // 1 = full fuse, 0 = about to blow - wire this to your countdown UI
-    public event System.Action<Catcher> OnRetargeted; // fire your telegraph flash/sound off this
-    public event System.Action<Catcher> OnDetonated;  // whoever was closest when it went off - the loser
+    public event System.Action<float> OnFuseTick;
+    public event System.Action<Catcher> OnRetargeted;
+    public event System.Action<Catcher> OnDetonated;
 
     protected override void Awake()
     {
@@ -48,10 +42,7 @@ public class Bomb : Throwable
         fuseTimer -= Time.deltaTime;
         OnFuseTick?.Invoke(FuseNormalized);
 
-        if (fuseTimer <= 0f)
-        {
-            Detonate();
-        }
+        if (fuseTimer <= 0f) Detonate();
     }
 
     private void FixedUpdate()
@@ -73,17 +64,23 @@ public class Bomb : Throwable
 
         currentTarget = FindDefaultTarget(throwerCatcher);
 
-        // Quick diagnostic - delete once you've confirmed targeting works.
         Debug.Log(currentTarget != null
             ? $"Bomb targeting: {currentTarget.name}"
-            : "Bomb has no target after throw - Catcher.All needs 2+ entries (check your test dummy has an enabled Catcher component)");
+            : "Bomb has no target after throw - Catcher.All needs 2+ entries");
+    }
+
+    // Keeps homing/rolling toward the target instead of going Idle on a miss -
+    // a fumbled throw should still be a threat, not a free reset.
+    protected override void OnMissedHit(Collision collision)
+    {
+        // Intentionally empty - do NOT call base (which sets State = Idle).
     }
 
     private Catcher FindDefaultTarget(Catcher exclude)
     {
         foreach (Catcher c in Catcher.All)
         {
-            if (c != exclude) return c; // 1v1: the default target is just "whoever isn't the thrower"
+            if (c != exclude) return c;
         }
         return null;
     }
@@ -93,13 +90,23 @@ public class Bomb : Throwable
         if (currentTarget == null) return;
 
         Vector3 toTarget = currentTarget.transform.position - transform.position;
-        if (toTarget.sqrMagnitude < 0.01f) return;
+        toTarget.y = 0f;
+        float dist = toTarget.magnitude;
+        if (dist < 0.01f) return;
 
-        Vector3 desiredDir = toTarget.normalized;
-        Vector3 currentDir = rb.linearVelocity.sqrMagnitude > 0.01f ? rb.linearVelocity.normalized : desiredDir;
-        Vector3 newDir = Vector3.Slerp(currentDir, desiredDir, homingStrength * Time.fixedDeltaTime);
+        Vector3 desiredDir = toTarget / dist;
 
-        rb.linearVelocity = newDir * rb.linearVelocity.magnitude; // curve direction, preserve speed
+        Vector3 flatVel = rb.linearVelocity; flatVel.y = 0f;
+        Vector3 currentDir = flatVel.sqrMagnitude > 0.01f ? flatVel.normalized : desiredDir;
+
+        Vector3 newDir = dist < snapToDirectRadius
+            ? desiredDir
+            : Vector3.Slerp(currentDir, desiredDir, homingStrength * Time.fixedDeltaTime);
+
+        float speed = Mathf.Max(flatVel.magnitude, minGroundHomingSpeed);
+        Vector3 newVel = newDir * speed;
+        newVel.y = rb.linearVelocity.y;
+        rb.linearVelocity = newVel;
     }
 
     private void UpdateRetarget()
@@ -114,7 +121,7 @@ public class Bomb : Throwable
             if (c == ignoredEntity)
             {
                 if (dist > retargetRadius) ignoredHasLeftZone = true;
-                if (!ignoredHasLeftZone) continue; // not eligible yet - this is the self-retarget fix from the GDD
+                if (!ignoredHasLeftZone) continue;
             }
 
             if (dist < closestDist)
@@ -147,9 +154,6 @@ public class Bomb : Throwable
                 loser = c;
             }
         }
-        // Holding the bomb puts you at ~0 distance, so "holding when it goes off"
-        // and "it landed near you" both fall out of this one comparison - no
-        // separate held-vs-thrown branch needed.
 
         if (explosionVFX != null)
         {
@@ -161,8 +165,6 @@ public class Bomb : Throwable
         OnDetonated?.Invoke(loser);
     }
 
-    // Call this from whatever end-game/menu script you build, once you know
-    // where (or whether) the bomb should reappear.
     public void Respawn(Vector3 position)
     {
         ForceReset(position);

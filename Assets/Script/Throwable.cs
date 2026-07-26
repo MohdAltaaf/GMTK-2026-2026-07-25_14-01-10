@@ -17,20 +17,20 @@ public class Throwable : MonoBehaviour
 
     public ThrowableState State { get; private set; } = ThrowableState.Idle;
     public Transform Holder { get; private set; }
-    public Transform CurrentThrower { get; private set; } // last thrower - handy for subclasses (e.g. the bomb's retarget-exclusion logic)
-
-    private Collider ignoredThrowerCollider;
+    public Transform CurrentThrower { get; private set; }
 
     protected virtual void Awake()
     {
         rb = GetComponent<Rigidbody>();
         col = GetComponent<Collider>();
-        rb.collisionDetectionMode = CollisionDetectionMode.Continuous; // avoids tunneling through thin colliders at throw speed
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
     }
 
     // --- Pickup / Hold ---
 
-    public virtual bool CanBePickedUp() => State == ThrowableState.Idle;
+    // "Not currently Held by someone else" - covers ground pickup (Idle) AND
+    // mid-flight catch (InFlight) in one check. Idle-only used to silently break every catch.
+    public virtual bool CanBePickedUp() => State != ThrowableState.Held;
 
     public virtual void PickUp(Transform holder)
     {
@@ -40,7 +40,7 @@ public class Throwable : MonoBehaviour
         State = ThrowableState.Held;
 
         rb.isKinematic = true;
-        col.enabled = false; // no physics needed while carried - it's parented
+        col.enabled = false;
 
         transform.SetParent(holder);
         transform.localPosition = holdLocalOffset;
@@ -60,29 +60,31 @@ public class Throwable : MonoBehaviour
         transform.SetParent(null);
         col.enabled = true;
         rb.isKinematic = false;
-        rb.linearVelocity = velocity; // Unity 6+ naming - use rb.velocity instead on older LTS versions
+        rb.linearVelocity = velocity;
 
         Collider throwerCollider = CurrentThrower != null ? CurrentThrower.GetComponentInParent<Collider>() : null;
         if (throwerCollider != null)
         {
-            ignoredThrowerCollider = throwerCollider;
-            Physics.IgnoreCollision(col, ignoredThrowerCollider, true);
-            Invoke(nameof(ReenableThrowerCollision), throwerIgnoreDuration);
+            StartCoroutine(IgnoreThrowerBriefly(throwerCollider));
         }
     }
 
-    private void ReenableThrowerCollision()
+    // Captures its own collider per-call instead of sharing one field - rapid
+    // back-and-forth throws (player -> enemy -> player) used to stomp on each
+    // other and leave collision permanently disabled for whoever lost the race.
+    private System.Collections.IEnumerator IgnoreThrowerBriefly(Collider throwerCollider)
     {
-        if (ignoredThrowerCollider == null) return;
-        Physics.IgnoreCollision(col, ignoredThrowerCollider, false);
-        ignoredThrowerCollider = null;
+        Physics.IgnoreCollision(col, throwerCollider, true);
+        yield return new WaitForSeconds(throwerIgnoreDuration);
+        if (throwerCollider != null)
+        {
+            Physics.IgnoreCollision(col, throwerCollider, false);
+        }
     }
 
-    // Generically useful for respawning ANY throwable at a fixed point - not
-    // bomb-specific, but Bomb.Respawn() (see Bomb.cs) is the main caller right now.
     public virtual void ForceReset(Vector3 position)
     {
-        CancelInvoke(); // clears any pending ReenableThrowerCollision call
+        StopAllCoroutines(); // clears any pending IgnoreThrowerBriefly re-enable
         transform.SetParent(null);
         transform.position = position;
         transform.rotation = Quaternion.identity;
@@ -111,13 +113,8 @@ public class Throwable : MonoBehaviour
         OnMissedHit(collision);
     }
 
-    // Subclasses override this for their specific effect (explode, freeze, knockback...).
-    // Left empty by default so a plain environment hit doesn't need special-casing.
     protected virtual void OnHitEffect(Collision collision) { }
 
-    // Default: settle wherever it landed so it can be picked up again.
-    // Override to keep something InFlight after a miss instead (e.g. the bomb,
-    // which should keep homing/rolling toward someone rather than going inert).
     protected virtual void OnMissedHit(Collision collision)
     {
         State = ThrowableState.Idle;

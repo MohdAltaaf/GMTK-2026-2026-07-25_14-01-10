@@ -8,13 +8,10 @@ public class EnemyAI : MonoBehaviour
     private enum AIState { Wander, Flee, Intercept }
 
     [Header("References")]
-    [Tooltip("Drag the bomb in the scene here.")]
     [SerializeField] private Bomb bomb;
 
     [Header("Awareness")]
-    [Tooltip("Bomb closer than this = enemy reacts at all. Farther away = idle wander.")]
     [SerializeField] private float awarenessRadius = 12f;
-    [Tooltip("Bomb closer than this while airborne = attempt a catch instead of fleeing.")]
     [SerializeField] private float catchAttemptRadius = 4f;
 
     [Header("Flee")]
@@ -26,8 +23,19 @@ public class EnemyAI : MonoBehaviour
     [SerializeField] private float wanderInterval = 3f;
 
     [Header("Catch Reaction")]
-    [Tooltip("Random human-like delay before the catch is actually armed once in range - keeps it beatable instead of a perfect wall.")]
     [SerializeField] private Vector2 reactionDelayRange = new Vector2(0.1f, 0.35f);
+
+    [Header("Throw Back")]
+    [SerializeField] private float throwBackForce = 18f;
+    [SerializeField] private Vector2 throwBackDelayRange = new Vector2(0.2f, 0.5f);
+    [Tooltip("Degrees to tilt the throw upward from flat - gives it an actual arc instead of a flat roll, and a real airborne window for deflection.")]
+    [SerializeField] private float throwBackArcAngle = 25f;
+    [Header("Aggression")]
+    [Range(0f, 1f)]
+    [Tooltip("Chance each flee-repath to instead push toward the player and herd the bomb at them (GDD section 4), instead of pure fleeing.")]
+    [SerializeField] private float herdChance = 0.35f;
+    [Tooltip("Candidate angles either side of straight-away-from-bomb, tried when picking a flee direction - stops it beelining into the same wall/corner repeatedly.")]
+    [SerializeField] private float[] fleeAngleOffsets = { 0f, 45f, -45f, 90f, -90f };
 
     private NavMeshAgent agent;
     private Catcher catcher;
@@ -44,6 +52,9 @@ public class EnemyAI : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         catcher = GetComponent<Catcher>();
     }
+
+    private void OnEnable() => catcher.OnCaught += HandleCaught;
+    private void OnDisable() => catcher.OnCaught -= HandleCaught;
 
     private void Update()
     {
@@ -102,20 +113,78 @@ public class EnemyAI : MonoBehaviour
         if (repathTimer > 0f) return;
         repathTimer = repathInterval;
 
-        Vector3 away = (transform.position - bomb.transform.position).normalized;
-        Vector3 fleePoint = transform.position + away * fleeDistance;
-
-        if (NavMesh.SamplePosition(fleePoint, out NavMeshHit hit, fleeDistance, NavMesh.AllAreas))
+        if (Random.value < herdChance)
         {
-            agent.SetDestination(hit.position);
+            Herd();
+            return;
         }
+
+        Vector3 awayDir = (transform.position - bomb.transform.position).normalized;
+        Vector3 bestPoint = transform.position;
+        float bestDist = -1f;
+
+        foreach (float angle in fleeAngleOffsets)
+        {
+            Vector3 dir = Quaternion.Euler(0f, angle, 0f) * awayDir;
+            Vector3 candidate = transform.position + dir * fleeDistance;
+
+            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, fleeDistance, NavMesh.AllAreas))
+            {
+                float d = Vector3.Distance(hit.position, bomb.transform.position);
+                if (d > bestDist)
+                {
+                    bestDist = d;
+                    bestPoint = hit.position;
+                }
+            }
+        }
+
+        agent.SetDestination(bestPoint);
     }
 
     private void Intercept()
     {
-        // Hold ground and let Throwable's catch check do its job - moving toward
-        // an incoming bomb is more likely to help than hurt, but keep it simple:
-        // just stop running so it doesn't accidentally dodge the catch.
         agent.ResetPath();
+    }
+
+    private void HandleCaught(Throwable item)
+    {
+        if (item != bomb) return;
+        StartCoroutine(ThrowBackAfterDelay());
+    }
+
+    private System.Collections.IEnumerator ThrowBackAfterDelay()
+    {
+        yield return new WaitForSeconds(Random.Range(throwBackDelayRange.x, throwBackDelayRange.y));
+        if (bomb.State != ThrowableState.Held) yield break;
+
+        Transform target = FindThrowBackTarget();
+        Vector3 dir = target != null ? (target.position - transform.position) : transform.forward;
+        dir.y = 0f;
+        dir = dir.sqrMagnitude > 0.01f ? dir.normalized : transform.forward;
+
+        // Tilt the flat direction upward - simple lob, not a full ballistic-arc
+        // calculation, but plenty for jam purposes.
+        float rad = throwBackArcAngle * Mathf.Deg2Rad;
+        Vector3 arcedDir = (dir * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad)).normalized;
+
+        bomb.Throw(arcedDir * throwBackForce);
+    }
+
+    private Transform FindThrowBackTarget()
+    {
+        foreach (Catcher c in Catcher.All)
+            if (c != catcher) return c.transform;
+        return null;
+    }
+    private void Herd()
+    {
+        Transform player = FindThrowBackTarget(); // reuse - "whoever isn't me"
+        if (player == null) return;
+
+        if (NavMesh.SamplePosition(player.position, out NavMeshHit hit, fleeDistance, NavMesh.AllAreas))
+        {
+            agent.SetDestination(hit.position);
+        }
     }
 }
