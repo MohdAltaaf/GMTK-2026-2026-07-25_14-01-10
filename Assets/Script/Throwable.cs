@@ -108,13 +108,18 @@ public class Throwable : MonoBehaviour
         }
 
         OnHitEffect(collision);
-
-        // Settle wherever it landed so it can be picked up again -
-        // no separate "rolls toward target" pathing, per the GDD.
-        State = ThrowableState.Idle;
+        OnMissedHit(collision);
     }
 
     // Subclasses override this for their specific effect (explode, freeze, knockback...).
     // Left empty by default so a plain environment hit doesn't need special-casing.
     protected virtual void OnHitEffect(Collision collision) { }
+
+    // Default: settle wherever it landed so it can be picked up again.
+    // Override to keep something InFlight after a miss instead (e.g. the bomb,
+    // which should keep homing/rolling toward someone rather than going inert).
+    protected virtual void OnMissedHit(Collision collision)
+    {
+        State = ThrowableState.Idle;
+    }
 }
