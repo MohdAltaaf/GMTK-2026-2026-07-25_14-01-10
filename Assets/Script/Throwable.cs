@@ -103,7 +103,7 @@ public class Throwable : MonoBehaviour
         if (State != ThrowableState.InFlight) return;
 
         Catcher catcher = collision.collider.GetComponentInParent<Catcher>();
-        if (catcher != null && catcher.IsReadyToCatch)
+       if (catcher != null && catcher.IsReadyToCatch && !catcher.IsHoldingSomething)
         {
             catcher.ReceiveCatch(this);
             return;

@@ -14,9 +14,20 @@ public class Bomb : Throwable
     [SerializeField] private float snapToDirectRadius = 1.5f;
 
     [Header("FX")]
-    [SerializeField] private ParticleSystem explosionVFX;
+    [Tooltip("Prefab whose children are the explosion's particle systems - all get played together.")]
+    [SerializeField] private GameObject explosionVFX;
 
-    private float fuseTimer;
+    [Header("Camera Shake")]
+    [Tooltip("Player's camera shake system - gets a trauma burst on detonation.")]
+    [SerializeField] private movementScript cameraShake;
+    [SerializeField] private float shakeTrauma = 1f;
+
+    [Header("Explosion Force")]
+    [SerializeField] private float explosionForce = 20f;
+    [SerializeField] private float explosionRadius = 15f;
+    [SerializeField] private float explosionUpwardsModifier = 1.5f;
+
+    public float fuseTimer;
     private bool hasDetonated;
 
     private Catcher currentTarget;
@@ -67,6 +78,61 @@ public class Bomb : Throwable
         Debug.Log(currentTarget != null
             ? $"Bomb targeting: {currentTarget.name}"
             : "Bomb has no target after throw - Catcher.All needs 2+ entries");
+    }
+
+    // Deflect off ANY other throwable it touches - not gated on the other
+    // item's State, because that was a race: the other item's own
+    // OnCollisionEnter can flip its State to Idle before or after this one
+    // runs (Unity doesn't guarantee which collider's callback fires first),
+    // so checking otherItem.State == InFlight here was unreliable and often
+    // silently failed. A physical collision is proof enough that it touched.
+    protected override void OnHitEffect(Collision collision)
+    {
+        Throwable otherItem = collision.collider.GetComponentInParent<Throwable>();
+        if (otherItem == null || otherItem == this) return;
+        if (collision.contacts.Length == 0) return;
+
+        Vector3 normal = collision.contacts[0].normal;
+        rb.linearVelocity = Vector3.Reflect(rb.linearVelocity, normal);
+
+        Debug.Log($"Bomb deflected off {otherItem.name}");
+
+        // Retarget to whoever ISN'T the deflector - the player who just
+        // successfully intercepted it shouldn't still be the one it's chasing.
+        Catcher deflector = otherItem.CurrentThrower != null
+            ? otherItem.CurrentThrower.GetComponentInParent<Catcher>()
+            : null;
+
+        Catcher newTarget = FindDefaultTarget(deflector);
+
+        if (newTarget != null && newTarget != currentTarget)
+        {
+            currentTarget = newTarget;
+            Debug.Log($"Bomb retargeted onto {newTarget.name} (deflect)");
+            OnRetargeted?.Invoke(newTarget);
+        }
+    }
+    // Called by anything that needs to strip time off the fuse directly (pocket watch, etc.)
+    public void ReduceFuse(float amount)
+    {
+        fuseTimer = Mathf.Max(0f, fuseTimer - amount);
+    }
+    // Deflect from an AoE source (windball, etc.) rather than a direct collision -
+// same idea as OnHitEffect's reflect, but there's no contact normal here, so
+// direction is just "away from the explosion origin" instead of off a surface.
+    // Called by AoE sources (windball, etc.) whose OnHitEffect already pushed the
+// bomb's rigidbody via the same AddExplosionForce every other object gets -
+// this only handles the retarget, since the physical shove is identical to
+// anyone else caught in the blast, no special velocity math needed here.
+    public void NotifyExplosionHit(Catcher excludeFromRetarget)
+    {
+        Catcher newTarget = FindDefaultTarget(excludeFromRetarget);
+        if (newTarget != null && newTarget != currentTarget)
+        {
+            currentTarget = newTarget;
+            Debug.Log($"Bomb retargeted onto {newTarget.name} (windball blast)");
+            OnRetargeted?.Invoke(newTarget);
+        }
     }
 
     // Keeps homing/rolling toward the target instead of going Idle on a miss -
@@ -134,6 +200,7 @@ public class Bomb : Throwable
         if (closest != null && closest != currentTarget)
         {
             currentTarget = closest;
+            Debug.Log($"Bomb retargeted onto {closest.name} (proximity)");
             OnRetargeted?.Invoke(closest);
         }
     }
@@ -157,20 +224,40 @@ public class Bomb : Throwable
 
         if (explosionVFX != null)
         {
-            ParticleSystem fx = Instantiate(explosionVFX, transform.position, Quaternion.identity);
-            fx.Play();
-            Destroy(fx.gameObject, fx.main.duration);
+            GameObject fx = Instantiate(explosionVFX, transform.position, Quaternion.identity);
+            ParticleSystem[] systems = fx.GetComponentsInChildren<ParticleSystem>();
+
+            float longestDuration = 0f;
+            foreach (ParticleSystem ps in systems)
+            {
+                ps.Play();
+                longestDuration = Mathf.Max(longestDuration, ps.main.duration + ps.main.startLifetime.constantMax);
+            }
+
+            Destroy(fx, longestDuration);
         }
 
+        if (cameraShake != null)
+        {
+            cameraShake.AddTrauma(shakeTrauma);
+        }
+
+        ApplyExplosionForce();
+
         OnDetonated?.Invoke(loser);
+
+        // Single-round game - the bomb doesn't come back, the explosion replaces it.
+        Destroy(gameObject);
     }
 
-    public void Respawn(Vector3 position)
+    private void ApplyExplosionForce()
     {
-        ForceReset(position);
-        fuseTimer = fuseDuration;
-        hasDetonated = false;
-        currentTarget = null;
-        ignoredEntity = null;
+        Collider[] hits = Physics.OverlapSphere(transform.position, explosionRadius);
+        foreach (Collider hit in hits)
+        {
+            Rigidbody hitRb = hit.attachedRigidbody;
+            if (hitRb == null || hitRb == rb) continue; // skip the bomb's own body - it's being destroyed anyway
+            hitRb.AddExplosionForce(explosionForce, transform.position, explosionRadius, explosionUpwardsModifier, ForceMode.Impulse);
+        }
     }
 }

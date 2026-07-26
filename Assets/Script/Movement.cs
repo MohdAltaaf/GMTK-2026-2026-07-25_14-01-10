@@ -29,6 +29,7 @@ public class Movememnt : MonoBehaviour
     [SerializeField] private int airDashCharges = 1;
 
     private CharacterController controller;
+    public PlayerAudio playerAudio;
     private Vector2 moveInput;
     private Vector3 velocity; // accumulated vertical velocity (gravity/jump)
 
@@ -55,6 +56,7 @@ public class Movememnt : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         airDashesRemaining = airDashCharges;
+        playerAudio = GetComponent<PlayerAudio>();
     }
 
 
@@ -62,6 +64,8 @@ public class Movememnt : MonoBehaviour
     void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
+        bool isMoving = moveInput.magnitude >0;
+        playerAudio.SetWalking(isMoving);
     }
 
     void OnJump(InputValue value)

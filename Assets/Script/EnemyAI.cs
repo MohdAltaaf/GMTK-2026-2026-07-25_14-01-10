@@ -169,6 +169,7 @@ public class EnemyAI : MonoBehaviour
         Vector3 arcedDir = (dir * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad)).normalized;
 
         bomb.Throw(arcedDir * throwBackForce);
+        
     }
 
     private Transform FindThrowBackTarget()

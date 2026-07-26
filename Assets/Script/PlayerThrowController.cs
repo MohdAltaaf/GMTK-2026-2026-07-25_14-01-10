@@ -5,8 +5,8 @@ using UnityEngine.InputSystem;
 public class PlayerThrowController : MonoBehaviour
 {
     [Header("References")]
-    [Tooltip("Aim direction for throws - typically the player's camera.")]
     [SerializeField] private Transform cam;
+    public PlayerAudio playerAudio;
 
     [Header("Pickup")]
     [SerializeField] private float pickupRange = 2f;
@@ -16,37 +16,19 @@ public class PlayerThrowController : MonoBehaviour
     [SerializeField] private float throwForce = 18f;
 
     private Catcher catcher;
-    private Throwable heldItem;
 
     private void Awake()
     {
         catcher = GetComponent<Catcher>();
+        playerAudio = GetComponent<PlayerAudio>();
     }
 
-    private void OnEnable()
-    {
-        catcher.OnCaught += HandleCaught;
-    }
-
-    private void OnDisable()
-    {
-        catcher.OnCaught -= HandleCaught;
-    }
-
-    private void HandleCaught(Throwable item)
-    {
-        heldItem = item;
-    }
-
-    // Holding this button arms the catch (checked inside Throwable.OnCollisionEnter)
-    // and, on the initial press, attempts a ground pickup if your hands are empty.
     void OnInteract(InputValue value)
     {
         bool pressed = value.isPressed;
         catcher.IsReadyToCatch = pressed;
-        Debug.Log("interact fired, pressed=" + value.isPressed);
 
-        if (pressed && heldItem == null)
+        if (pressed && !catcher.IsHoldingSomething)
         {
             TryPickUpNearby();
         }
@@ -55,10 +37,27 @@ public class PlayerThrowController : MonoBehaviour
     void OnThrow(InputValue value)
     {
         if (!value.isPressed) return;
-        if (heldItem == null) return;
+        if (!catcher.IsHoldingSomething) return;
 
-        heldItem.Throw(cam.forward * throwForce);
-        heldItem = null;
+        Throwable item = catcher.HeldItem;
+
+        Vector3 aimPoint = GetAimPoint();
+        Vector3 throwDir = (aimPoint - item.transform.position).normalized;
+
+        item.Throw(throwDir * throwForce);
+        playerAudio.PlayThrowSound();
+
+        catcher.NotifyThrown();
+    }
+
+    private Vector3 GetAimPoint()
+    {
+        const float maxDistance = 100f;
+        if (Physics.Raycast(cam.position, cam.forward, out RaycastHit hit, maxDistance))
+        {
+            return hit.point;
+        }
+        return cam.position + cam.forward * maxDistance; // nothing in the way - aim far down the sightline
     }
 
     private void TryPickUpNearby()
@@ -73,7 +72,6 @@ public class PlayerThrowController : MonoBehaviour
             if (candidate == null || !candidate.CanBePickedUp()) continue;
 
             float dist = Vector3.Distance(transform.position, candidate.transform.position);
-            Debug.Log(hits.Length);
             if (dist < closestDist)
             {
                 closestDist = dist;
@@ -83,8 +81,7 @@ public class PlayerThrowController : MonoBehaviour
 
         if (closest != null)
         {
-            closest.PickUp(catcher.HoldPoint);
-            heldItem = closest;
+            catcher.ReceiveCatch(closest); // routed through Catcher, not a direct PickUp
         }
     }
 }
