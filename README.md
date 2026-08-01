@@ -1,4 +1,4 @@
-# FUSE (working title) — Game Design Document
+# Get Rid Of The Bomb — Game Design Document
 *GMTK Jam — Theme: Countdown*
 
 Placeholder title ideas: **Fuse**, **Hot Potato**, **Last Pass**, **Detonation Tag**. Pick whichever sounds best out loud.
